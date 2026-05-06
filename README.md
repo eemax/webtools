@@ -11,6 +11,18 @@ The CLI is intentionally small:
 
 ## Usage
 
+Build locally:
+
+```bash
+cargo build --release
+```
+
+Install from the checkout:
+
+```bash
+cargo install --path .
+```
+
 ```bash
 webtools search "rust async runtime comparison"
 webtools search --count 10 "openai responses api web search"
@@ -20,6 +32,28 @@ webtools fetch --md https://example.com
 ```
 
 `search` requires `EXA_API_KEY`.
+
+## Development
+
+Run the standard local gate:
+
+```bash
+just check
+```
+
+Or without `just`:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+Live tests are ignored by default:
+
+```bash
+cargo test --test live -- --ignored
+```
 
 ## Shape
 
@@ -48,6 +82,14 @@ webtools fetch --md https://example.com
   "error": null
 }
 ```
+
+## Exit Policy
+
+`webtools` treats ordinary fetch failures as data, not process failures.
+
+- Usage errors, bad flags, and runtime failures such as missing `EXA_API_KEY` exit nonzero.
+- `fetch` failures like `invalid_url`, `blocked_host`, HTTP 404, or transport errors exit zero and return JSON with `"ok": false`.
+- `fetch --md` prints only the Markdown body. If the fetch result is not ok, the body is empty.
 
 ## Non-goals
 

@@ -39,12 +39,24 @@ pub enum FetchKind {
     Error,
 }
 
-pub fn fetch(raw_url: &str) -> Result<FetchOutput, crate::error::AppError> {
-    Ok(fetch_inner(raw_url))
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FetchConfig {
+    pub allow_local: bool,
 }
 
-fn fetch_inner(raw_url: &str) -> FetchOutput {
-    let url = match validate_url(raw_url) {
+pub fn fetch(raw_url: &str) -> Result<FetchOutput, crate::error::AppError> {
+    fetch_with_config(raw_url, FetchConfig::default())
+}
+
+pub fn fetch_with_config(
+    raw_url: &str,
+    config: FetchConfig,
+) -> Result<FetchOutput, crate::error::AppError> {
+    Ok(fetch_inner(raw_url, config))
+}
+
+fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
+    let url = match validate_url(raw_url, config) {
         Ok(url) => url,
         Err(error) => return failure(raw_url, None, None, None, error),
     };
@@ -81,7 +93,7 @@ fn fetch_inner(raw_url: &str) -> FetchOutput {
     };
 
     let final_url = response.get_url().to_string();
-    if let Err(error) = validate_url(&final_url) {
+    if let Err(error) = validate_url(&final_url, config) {
         return failure(raw_url, Some(final_url), None, None, error);
     }
 
@@ -181,7 +193,7 @@ fn fetch_inner(raw_url: &str) -> FetchOutput {
     }
 }
 
-fn validate_url(raw_url: &str) -> Result<Url, &'static str> {
+fn validate_url(raw_url: &str, config: FetchConfig) -> Result<Url, &'static str> {
     let url = Url::parse(raw_url).map_err(|_| "invalid_url")?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("unsupported_scheme");
@@ -192,20 +204,21 @@ fn validate_url(raw_url: &str) -> Result<Url, &'static str> {
     match host {
         Host::Domain(domain) => {
             let domain = domain.trim_end_matches('.').to_ascii_lowercase();
-            if domain == "localhost"
-                || domain.ends_with(".localhost")
-                || domain == "metadata.google.internal"
+            if !config.allow_local
+                && (domain == "localhost"
+                    || domain.ends_with(".localhost")
+                    || domain == "metadata.google.internal")
             {
                 return Err("blocked_host");
             }
         }
         Host::Ipv4(address) => {
-            if is_blocked_ip(IpAddr::V4(address)) {
+            if !config.allow_local && is_blocked_ip(IpAddr::V4(address)) {
                 return Err("blocked_host");
             }
         }
         Host::Ipv6(address) => {
-            if is_blocked_ip(IpAddr::V6(address)) {
+            if !config.allow_local && is_blocked_ip(IpAddr::V6(address)) {
                 return Err("blocked_host");
             }
         }
@@ -313,16 +326,21 @@ fn failure(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_url;
+    use super::{FetchConfig, validate_url};
 
     #[test]
     fn rejects_localhost() {
-        assert!(validate_url("http://localhost:3000").is_err());
-        assert!(validate_url("http://127.0.0.1").is_err());
+        assert!(validate_url("http://localhost:3000", FetchConfig::default()).is_err());
+        assert!(validate_url("http://127.0.0.1", FetchConfig::default()).is_err());
     }
 
     #[test]
     fn accepts_public_https() {
-        assert!(validate_url("https://example.com").is_ok());
+        assert!(validate_url("https://example.com", FetchConfig::default()).is_ok());
+    }
+
+    #[test]
+    fn config_can_allow_localhost() {
+        assert!(validate_url("http://127.0.0.1", FetchConfig { allow_local: true }).is_ok());
     }
 }

@@ -29,9 +29,34 @@ fn fetch_rejects_conflicting_output_flags() {
 fn fetch_blocks_localhost_as_json() {
     let mut cmd = Command::cargo_bin("webtools").expect("binary");
 
-    cmd.args(["fetch", "http://localhost:3000"])
+    let output = cmd
+        .args(["fetch", "http://localhost:3000"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"ok\":false"))
-        .stdout(predicate::str::contains("\"error\":\"blocked_host\""));
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("json stdout");
+
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["kind"], "error");
+    assert_eq!(json["error"], "blocked_host");
+    assert_eq!(json["content"], "");
+}
+
+#[test]
+fn fetch_invalid_url_is_json_success() {
+    let mut cmd = Command::cargo_bin("webtools").expect("binary");
+
+    let output = cmd
+        .args(["fetch", "not-a-url"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let json: serde_json::Value = serde_json::from_slice(&output).expect("json stdout");
+
+    assert_eq!(json["ok"], false);
+    assert_eq!(json["error"], "invalid_url");
 }
