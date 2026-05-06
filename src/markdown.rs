@@ -372,17 +372,23 @@ fn is_noisy_element(element: &ElementRef<'_>) -> bool {
     let tag = element.value().name();
     if matches!(
         tag,
-        "script" | "style" | "nav" | "footer" | "form" | "button" | "iframe" | "svg" | "canvas"
+        "script"
+            | "style"
+            | "header"
+            | "nav"
+            | "footer"
+            | "form"
+            | "button"
+            | "iframe"
+            | "svg"
+            | "canvas"
     ) {
         return true;
     }
 
-    ["class", "id", "role", "aria-label"].iter().any(|name| {
-        element
-            .value()
-            .attr(name)
-            .is_some_and(|value| has_noisy_token(value))
-    })
+    ["class", "id", "role", "aria-label"]
+        .iter()
+        .any(|name| element.value().attr(name).is_some_and(has_noisy_token))
 }
 
 fn has_noisy_token(value: &str) -> bool {

@@ -1,12 +1,6 @@
-mod cli;
-mod error;
-mod fetch;
-mod markdown;
-mod search;
-
 use std::process::ExitCode;
 
-use crate::{cli::Command, error::AppError};
+use webtools::{cli, cli::Command, error::AppError, fetch, search};
 
 fn main() -> ExitCode {
     match run() {
