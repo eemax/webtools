@@ -26,9 +26,11 @@ cargo install --path .
 ```bash
 webtools search "rust async runtime comparison"
 webtools search --count 10 "openai responses api web search"
+webtools search -n 3 --type neural "rust html parser"
 
 webtools fetch https://example.com
 webtools fetch --md https://example.com
+webtools --version
 ```
 
 `search` requires `EXA_API_KEY`.
@@ -55,6 +57,12 @@ Live tests are ignored by default:
 cargo test --test live -- --ignored
 ```
 
+Run a tiny live fetch smoke benchmark:
+
+```bash
+scripts/bench_fetch.sh
+```
+
 ## Shape
 
 ```json
@@ -63,7 +71,15 @@ cargo test --test live -- --ignored
   "provider": "exa",
   "query": "rust async runtime comparison",
   "type": "auto",
-  "results": []
+  "results": [
+    {
+      "title": "Example",
+      "url": "https://example.com",
+      "published_date": null,
+      "score": 0.42,
+      "highlights": []
+    }
+  ]
 }
 ```
 
@@ -79,6 +95,8 @@ cargo test --test live -- --ignored
   "content": "# Example Domain\n\n...",
   "warnings": [],
   "truncated": false,
+  "bytes_read": 1256,
+  "elapsed_ms": 184,
   "error": null
 }
 ```
@@ -96,6 +114,7 @@ cargo test --test live -- --ignored
 - no browser automation
 - no crawler
 - no JavaScript rendering
+- no robots.txt crawling policy; this is a single-URL fetch tool, not a crawler
 - no enterprise-grade network stack
 - no runtime Defuddle/Node dependency
 

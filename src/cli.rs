@@ -5,6 +5,7 @@ pub enum Command {
     Search(SearchOptions),
     Fetch(FetchOptions),
     Help,
+    Version,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,6 +26,7 @@ where
 
     match args[0].as_str() {
         "-h" | "--help" | "help" => Ok(Command::Help),
+        "-V" | "--version" | "version" => Ok(Command::Version),
         "search" => parse_search(&args[1..]),
         "fetch" => parse_fetch(&args[1..]),
         command => Err(AppError::Usage(format!(
@@ -38,6 +40,7 @@ pub fn usage() -> &'static str {
     "Usage:
   webtools search [--count <n>] [--type <auto|neural|keyword>] <query...>
   webtools fetch [--json|--md] <url>
+  webtools --version
 
 Defaults:
   Output is JSON unless --md is passed to fetch.
@@ -175,5 +178,11 @@ mod tests {
                 search_type: "auto".to_string()
             })
         );
+    }
+
+    #[test]
+    fn parses_version() {
+        let parsed = parse(["--version"]).expect("parse");
+        assert_eq!(parsed, Command::Version);
     }
 }

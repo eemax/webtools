@@ -104,7 +104,7 @@ fn render_children(element: ElementRef<'_>, base_url: Option<&Url>) -> String {
     for child in element.children() {
         if let Some(text) = child.value().as_text() {
             let text = clean_inline(text);
-            if !text.is_empty() {
+            if !text.is_empty() && !is_junk_line(&text) {
                 out.push_str(&text);
                 out.push_str("\n\n");
             }
@@ -130,7 +130,7 @@ fn render_element(element: ElementRef<'_>, base_url: Option<&Url>) -> String {
                 .unwrap_or(2)
                 .min(6);
             let text = render_inline(element, base_url);
-            if text.is_empty() {
+            if text.is_empty() || is_junk_line(&text) {
                 String::new()
             } else {
                 format!("{} {}\n\n", "#".repeat(level), text)
@@ -138,7 +138,7 @@ fn render_element(element: ElementRef<'_>, base_url: Option<&Url>) -> String {
         }
         "p" | "figcaption" => {
             let text = render_inline(element, base_url);
-            if text.is_empty() {
+            if text.is_empty() || is_junk_line(&text) {
                 String::new()
             } else {
                 format!("{text}\n\n")
@@ -215,13 +215,15 @@ fn render_inline(element: ElementRef<'_>, base_url: Option<&Url>) -> String {
 }
 
 fn render_pre(element: ElementRef<'_>) -> String {
+    let language = code_language(element);
     let code = element.text().collect::<String>().replace("\r\n", "\n");
     let code = code.trim_matches('\n');
     if code.is_empty() {
         return String::new();
     }
     let fence = code_fence_for(code);
-    format!("{fence}\n{code}\n{fence}\n\n")
+    let language = language.unwrap_or_default();
+    format!("{fence}{language}\n{code}\n{fence}\n\n")
 }
 
 fn render_blockquote(element: ElementRef<'_>, base_url: Option<&Url>) -> String {
@@ -250,7 +252,7 @@ fn render_list(element: ElementRef<'_>, base_url: Option<&Url>, ordered: bool) -
             continue;
         }
         let item = normalize_markdown(&render_children(child, base_url));
-        if item.is_empty() {
+        if item.is_empty() || is_junk_line(&item) {
             continue;
         }
         let marker = if ordered {
@@ -411,6 +413,8 @@ fn has_noisy_token(value: &str) -> bool {
                     | "share"
                     | "social"
                     | "breadcrumb"
+                    | "toc"
+                    | "tableofcontents"
                     | "advert"
                     | "ads"
                     | "promo"
@@ -451,6 +455,46 @@ fn code_fence_for(code: &str) -> String {
     "`".repeat(longest.max(2) + 1)
 }
 
+fn code_language(element: ElementRef<'_>) -> Option<String> {
+    code_language_from_attrs(&element).or_else(|| {
+        let selector = Selector::parse("code").expect("valid selector");
+        element
+            .select(&selector)
+            .find_map(|code| code_language_from_attrs(&code))
+    })
+}
+
+fn code_language_from_attrs(element: &ElementRef<'_>) -> Option<String> {
+    element
+        .value()
+        .attr("data-lang")
+        .or_else(|| element.value().attr("data-language"))
+        .and_then(clean_language)
+        .or_else(|| {
+            element.value().attr("class").and_then(|class| {
+                class.split_whitespace().find_map(|token| {
+                    token
+                        .strip_prefix("language-")
+                        .or_else(|| token.strip_prefix("lang-"))
+                        .and_then(clean_language)
+                })
+            })
+        })
+}
+
+fn clean_language(value: &str) -> Option<String> {
+    let cleaned = value.trim().trim_start_matches('.').to_ascii_lowercase();
+    if cleaned
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '+'))
+        && !cleaned.is_empty()
+    {
+        Some(cleaned)
+    } else {
+        None
+    }
+}
+
 fn escape_link_text(input: &str) -> String {
     input
         .replace('\\', "\\\\")
@@ -460,6 +504,20 @@ fn escape_link_text(input: &str) -> String {
 
 fn clean_inline(input: &str) -> String {
     input.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_junk_line(input: &str) -> bool {
+    let cleaned = clean_inline(input)
+        .trim_matches(|ch: char| ch == '#' || ch == '-' || ch == ':' || ch.is_whitespace())
+        .to_ascii_lowercase();
+    matches!(
+        cleaned.as_str(),
+        "skip to content"
+            | "skip to main content"
+            | "skip navigation"
+            | "table of contents"
+            | "contents"
+    )
 }
 
 fn normalize_markdown(input: &str) -> String {
@@ -522,9 +580,22 @@ mod tests {
 
     #[test]
     fn renders_code_fence() {
-        let html = "<html><body><main><pre>fn main() {}</pre></main></body></html>";
+        let html = r#"<html><body><main><pre><code class="language-rust">fn main() {}</code></pre></main></body></html>"#;
         let extracted = extract(html, "https://example.com");
-        assert!(extracted.content.contains("```"));
+        assert!(extracted.content.contains("```rust"));
         assert!(extracted.content.contains("fn main() {}"));
+    }
+
+    #[test]
+    fn drops_common_jump_links() {
+        let html = r#"
+            <html>
+              <head><title>Docs</title></head>
+              <body><main><p>Skip to content</p><p>Useful text</p></main></body>
+            </html>
+        "#;
+        let extracted = extract(html, "https://example.com");
+        assert!(!extracted.content.contains("Skip to content"));
+        assert!(extracted.content.contains("Useful text"));
     }
 }

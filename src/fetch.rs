@@ -1,4 +1,8 @@
-use std::{io::Read, net::IpAddr, time::Duration};
+use std::{
+    io::Read,
+    net::IpAddr,
+    time::{Duration, Instant},
+};
 
 use serde::Serialize;
 use url::{Host, Url};
@@ -26,6 +30,8 @@ pub struct FetchOutput {
     pub content: String,
     pub warnings: Vec<String>,
     pub truncated: bool,
+    pub bytes_read: u64,
+    pub elapsed_ms: u64,
     pub error: Option<String>,
 }
 
@@ -56,9 +62,10 @@ pub fn fetch_with_config(
 }
 
 fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
+    let started_at = Instant::now();
     let url = match validate_url(raw_url, config) {
         Ok(url) => url,
-        Err(error) => return failure(raw_url, None, None, None, error),
+        Err(error) => return failure(raw_url, None, None, None, error, 0, started_at),
     };
 
     let agent = ureq::AgentBuilder::new()
@@ -85,16 +92,26 @@ fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
                 Some(code),
                 Some(content_type),
                 "http_status",
+                0,
+                started_at,
             );
         }
         Err(ureq::Error::Transport(error)) => {
-            return failure(raw_url, None, None, None, &format!("transport: {error}"));
+            return failure(
+                raw_url,
+                None,
+                None,
+                None,
+                &transport_error_code(&error.to_string()),
+                0,
+                started_at,
+            );
         }
     };
 
     let final_url = response.get_url().to_string();
     if let Err(error) = validate_url(&final_url, config) {
-        return failure(raw_url, Some(final_url), None, None, error);
+        return failure(raw_url, Some(final_url), None, None, error, 0, started_at);
     }
 
     let status = response.status();
@@ -109,6 +126,8 @@ fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
             Some(status),
             content_type,
             "content_too_large",
+            0,
+            started_at,
         );
     }
 
@@ -121,12 +140,16 @@ fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
             Some(status),
             None,
             &format!("read: {error}"),
+            0,
+            started_at,
         );
     }
+    let bytes_read = bytes.len() as u64;
     let truncated = bytes.len() > MAX_BYTES;
     if truncated {
         bytes.truncate(MAX_BYTES);
     }
+    let elapsed_ms = elapsed_ms(started_at);
 
     let body = String::from_utf8_lossy(&bytes).to_string();
     let kind = classify(&content_type, &body);
@@ -148,6 +171,8 @@ fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
                 content: extracted.content,
                 warnings,
                 truncated,
+                bytes_read,
+                elapsed_ms,
                 error: None,
             }
         }
@@ -162,6 +187,8 @@ fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
             content: pretty_json_or_raw(&body),
             warnings: truncation_warning(truncated),
             truncated,
+            bytes_read,
+            elapsed_ms,
             error: None,
         },
         FetchKind::Text => FetchOutput {
@@ -175,6 +202,8 @@ fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
             content: normalize_text(&body),
             warnings: truncation_warning(truncated),
             truncated,
+            bytes_read,
+            elapsed_ms,
             error: None,
         },
         FetchKind::Binary | FetchKind::Error => FetchOutput {
@@ -188,6 +217,8 @@ fn fetch_inner(raw_url: &str, config: FetchConfig) -> FetchOutput {
             content: String::new(),
             warnings: truncation_warning(truncated),
             truncated,
+            bytes_read,
+            elapsed_ms,
             error: Some("binary_content".to_string()),
         },
     }
@@ -308,6 +339,8 @@ fn failure(
     status: Option<u16>,
     content_type: Option<String>,
     error: &str,
+    bytes_read: u64,
+    started_at: Instant,
 ) -> FetchOutput {
     FetchOutput {
         ok: false,
@@ -320,7 +353,21 @@ fn failure(
         content: String::new(),
         warnings: Vec::new(),
         truncated: false,
+        bytes_read,
+        elapsed_ms: elapsed_ms(started_at),
         error: Some(error.to_string()),
+    }
+}
+
+fn elapsed_ms(started_at: Instant) -> u64 {
+    started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+}
+
+fn transport_error_code(error: &str) -> String {
+    if error.to_ascii_lowercase().contains("redirect") {
+        "too_many_redirects".to_string()
+    } else {
+        format!("transport: {error}")
     }
 }
 

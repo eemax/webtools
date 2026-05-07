@@ -30,5 +30,6 @@ fn run() -> Result<String, AppError> {
             }
         }
         Command::Help => Ok(cli::usage().to_string()),
+        Command::Version => Ok(format!("webtools {}", env!("CARGO_PKG_VERSION"))),
     }
 }
